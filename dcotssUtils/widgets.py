@@ -158,9 +158,9 @@ class HeightConverter( QWidget ):
       return
     
     try:
-      m, K, theta, d = self.atmos.fromhPa( Pa )
+      m, K, theta, d = self.atmos.fromhPa( val )
     except Exception as err:
-      self.log.error( f'Failed to convert altitude: {err}' )
+      self.log.error( f'Failed to convert pressure: {err}' )
       self.updateLabels( )
     else:
       self.updateLabels( km=m/1.0e3, hPa=val, temp=K, theta=theta)
@@ -178,7 +178,7 @@ class HeightConverter( QWidget ):
     try: 
       Pa, m, K, d = self.atmos.fromTheta( val )
     except Exception as err: 
-      self.log.error( f'Failed to convert altitude: {err}' )
+      self.log.error( f'Failed to convert temperature: {err}' )
       self.updateLabels( )
     else:
       self.updateLabels( km=m/1.0e3, hPa=Pa/100.0, temp=K, theta=val)
