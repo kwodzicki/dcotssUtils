@@ -111,8 +111,8 @@ def getVarName_Units( txt ):
       unit = 1.0
   return var, unit
 
-def parseData( table, refDate, loc ):
-  data    = { 'date' : [], 'location' : loc }
+def parseData( table, refDate, loc, update ):
+  data    = { 'date' : [], 'location' : loc, 'update' : update }
   offset  = 0
 
   for row in table.find_all('tr'):
@@ -171,6 +171,7 @@ def getNWSData( url = URL, parser = 'html.parser' ):
   if html is None: return html
 
   loc    = ''
+  update = ''
 
   soup   = BS( html, parser )
   tables = soup.find_all('table')
@@ -180,10 +181,12 @@ def getNWSData( url = URL, parser = 'html.parser' ):
         txt = col.text.lower()
         if 'point forecast' in txt:
           loc = ':'.join( col.text.split(':')[1:] )  
+        elif 'last update' in txt:
+          update = col.text
         elif 'period starting:' in txt:
           refDate = getRefDate( col )
         elif txt == 'date':                                          # We found a table with good data
-          return parseData( table, refDate, loc ) 
+          return parseData( table, refDate, loc, update ) 
 
 
 if __name__ == "__main__":

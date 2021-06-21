@@ -1,7 +1,7 @@
 import os
 import datetime as dt
 
-from qtpy.QtWidgets import QMainWindow
+from qtpy.QtWidgets import QWidget, QLabel, QVBoxLayout
 from qtpy.QtCore import QTimer
 
 from matplotlib.backends.backend_qt5agg import FigureCanvas
@@ -13,7 +13,7 @@ import numpy as np
 from metpy.calc import dewpoint_from_relative_humidity, wind_components
 from metpy.units import units
 
-from .htmlUtils import getNWSData
+from ..htmlUtils import getNWSData
 
 DEFAULT_KWARGS = {'marker' : 'o', 'linestyle' : '-'}
 
@@ -134,10 +134,14 @@ class Meteogram( FigureCanvas ):
         self._init_winds(ws, wd, wsmax)
       else:
         u, v = wind_components( ws, wd ) 
-        self.winds['wind'].set_data( self.dates, ws )
-        #self.winds['barbs'].set_data( self.dates, ws, u, v)
-        #ln3  = ax.barbs(self.dates, ws, u, v )
-        self.winds['gust'].set_data( self.dates, wsmax)
+        self.winds['wind' ].set_data( self.dates, ws )
+        try:
+          self.winds['barbs'].remove()#set_data( self.dates, ws, u, v)
+        except:
+          pass
+        else:
+          self.winds['barbs'] = self.winds['axes'].barbs(self.dates, ws, u, v )
+        self.winds['gust' ].set_data( self.dates, wsmax)
       self.winds['axes'].set_ylim( *prange )
 
 
@@ -274,21 +278,30 @@ class Meteogram( FigureCanvas ):
     self.figure.tight_layout()
     self.draw()
 
-class NWS_Forecast( QMainWindow ):
+class NWS_Forecast( QWidget ):
 
   def __init__(self, *args, **kwargs):
     data     = kwargs.pop('data', None)
     interval = kwargs.pop('interval', 10.0 )
     super().__init__(*args, **kwargs)
-    self.fig = Meteogram( data = data )
+
+    self.fig      = Meteogram( data = data )
+    self.update   = QLabel()
+    self.download = QLabel()
 
     self._update()
 
     self._timer = QTimer()
     self._timer.timeout.connect( self._update )
     self._timer.start( interval * 1000 * 60  )
+    #self._timer.start( 1000 )
+    
+    layout = QVBoxLayout()
+    layout.addWidget( self.fig )
+    layout.addWidget( self.update )
+    layout.addWidget( self.download )
 
-    self.setCentralWidget( self.fig )
+    self.setLayout( layout )
     self.show()
 
   def _update(self):
@@ -296,6 +309,9 @@ class NWS_Forecast( QMainWindow ):
       data = getNWSData()
     except Exception as err:
       print( f'Failed to get data: {err}' )
-    else:
-      self.fig.replot( data )
+      return
+    self.fig.replot( data )
+    utc = dt.datetime.utcnow().strftime( '%I:%M %p UTC %b %d, %Y' )
+    self.update.setText( data['update'] )
+    self.download.setText( f'Download time: {utc}' )
 

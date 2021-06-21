@@ -3,9 +3,10 @@
 if __name__ == "__main__":
   import sys
   from qtpy.QtWidgets import QApplication
-  from dcotssUtils.main import MainWindow
+  from dcotssUtils.main import MainWindow, Meteorology
 
   app   = QApplication(sys.argv)
   main  = MainWindow()
+  met   = Meteorology( parent = main )
   app.exec_()
 
