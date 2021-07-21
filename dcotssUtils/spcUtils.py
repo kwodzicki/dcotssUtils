@@ -50,27 +50,27 @@ class SPC_Shapefiles( object ):
  
   @property
   @threadSafe
-  def categorical(self):
+  def Categorical(self):
     return self._categorical
 
   @property
   @threadSafe
-  def probabilistic(self):
+  def Probabilistic(self):
     return self._probabilistic
 
   @property
   @threadSafe
-  def tornado(self):
+  def Tornado(self):
     return self._tornado
 
   @property
   @threadSafe
-  def wind(self):
+  def Wind(self):
     return self._wind
 
   @property
   @threadSafe
-  def hail(self):
+  def Hail(self):
     return self._hail
 
   def __getitem__(self, index):

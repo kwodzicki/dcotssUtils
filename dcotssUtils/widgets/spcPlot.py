@@ -30,6 +30,55 @@ NOT_USA    = [0.75] * 3
 FLOAT      = re.compile( '\d+\.?\d*' )
 DATEFMT    = '%Y%m%d%H%M'
 
+def convert2Percent(val):
+  """
+  Convert fractional string value to percent value
+
+  """
+
+  if FLOAT.match( val ):                                                        # If val matches the FLOAT regex pattern
+    return str(int(float(val)*100))                                             # Convert val to float, multiply by 100, convert to int, convert to string
+  return val                                                                    # Just return val
+
+def parseRecord(fields, record):
+  """
+  Parse information from shapefile record
+
+  Get information such as issue datetime, expire datetime, colors, etc
+  from a recond in the shape file
+
+  Arguments:
+    fields (list) : Field names
+    record (list) : Record information
+
+  Returns:
+    tuple : starting datetime, ending datetime, issued datetime, dict of 
+      other informaiton
+
+  """
+
+  start = end = issued = None                                                   # Initialize start, end, and issued to None
+  out = {}                                                                      # Emtpy dict
+  for ID, field in enumerate( fields ):                                         # Iterate over all fields
+    key = None                                                                  # Set key to None by default
+    val = record[ID-1]                                                          # Set val to record that corresponds with field
+    if field == 'VALID':                                                        # If field is VALID
+      start = datetime.strptime(val, DATEFMT)                                   # Parse start time
+    elif field == 'EXPIRE':
+      end = datetime.strptime(val, DATEFMT)                                     # Parse end time
+    elif field == 'ISSUE':
+      issued = datetime.strptime(val, DATEFMT)                                  # Parse issued time
+    elif field == 'LABEL':
+      key = 'label'                                                             # Set key value
+      val = convert2Percent( val )                                              # Update val value
+    elif field == 'stroke':
+      key = 'edgecolor'                                                         # Set key val
+    elif field == 'fill':
+      key = 'facecolor'                                                         # Set key val
+    if key:                                                                     # If the key is set
+      out[key] = val                                                            # Add value to the out dict
+  return start, end, issued, out                                                # Return values
+
 class ShapeReader( Reader ):
   def close(self):
     """
@@ -44,75 +93,68 @@ class ShapeReader( Reader ):
 
     pass
 
-def convert2Percent(val):
-  if FLOAT.match( val ):
-    return str(int(float(val)*100))
-  return val
-
-def parseRecord(fields, record):
-  start = end = issued = None
-  out = {}
-  for ID, field in enumerate( fields ):
-    key = None
-    val = record[ID-1]
-    if field == 'VALID':
-      start = datetime.strptime(val, DATEFMT) 
-    elif field == 'EXPIRE':
-      end = datetime.strptime(val, DATEFMT) 
-    elif field == 'ISSUE':
-      issued = datetime.strptime(val, DATEFMT) 
-    elif field == 'LABEL':
-      key = 'label'
-      val = convert2Percent( val )
-    elif field == 'stroke':
-      key = 'edgecolor'
-    elif field == 'fill':
-      key = 'facecolor'
-    if key:
-      out[key] = val
-  return start, end, issued, out
 
 
 class SPCWidget( SPC_Shapefiles, QWidget ):
-  PROB_MINPROB = 5
-  TORN_MINPROB = 2
-  WIND_MINPROB = 5
-  HAIL_MINPROB = 5
+
+  PLOT_OPTS    = {
+    'Categorical'   : {'ncol' : 3},
+    'Probabilistic' : {'ncol' : 6, 'minProb' : 5},
+    'Tornado'       : {'ncol' : 8, 'minProb' : 2},
+    'Wind'          : {'ncol' : 6, 'minProb' : 5},
+    'Hail'          : {'ncol' : 6, 'minProb' : 5}
+  }
+
+  """Widget for displaying SPC Outlook maps"""
 
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     
-    self._currentFunc = None
-    self.outlookType  = None
-    self.currentDay   = 1
 
-    self.ax           = None
-    self.artists      = []
+    self.ax           = None                                                    # Will be used to reference map axes later
+    self.artists      = []                                                      # List to store all matploblib artists that will be updated
+    self.dayButtons   = {}                                                      # Dictionary to hold references to buttons to change outlook day
+    self.catButtons   = {}                                                      # Dictionary to store references to buttons that will change outlook type (categorical, tornado, etc.)
 
-    self.dayButtons   = {}
-    self.dayWidget    = None
-    self._initDayWidget()
+    labelFont = self.font()                                                     # Get font for self
+    labelFont.setPointSize(28)                                                  # Update size
+    labelFont.setBold(True)                                                     # Set bold
 
-    canvas = self._initCanvas()
-    navBar = NavigationToolbar( canvas, self )
+    self.dateLabel = QLabel()                                                   # Main Outlook banner with issued date and outlook day
+    self.dateLabel.setFont( labelFont )                                         # Set font
+    self.dateLabel.setAlignment( Qt.AlignCenter )                               # Set alignment to center
 
-    self.catButtons = {}
-    self.catWidget  = None
-    self._initCatWidget()
+    canvas = self._initCanvas()                                                 # Initialize the plot canvas; draws base map
+    navBar = NavigationToolbar( canvas, self )                                  # Add matploblib toolbar to map
 
-    layout = QVBoxLayout()
-    layout.addWidget( self.dayWidget )
+    self.dayWidget = QWidget()                                                  # Make a widget
+    layout         = QGridLayout()                                              # Define a grid layout
+    layout.setColumnStretch(1, 10)                                              # Set middle column stretch to large number
+    self.dayWidget.setLayout( layout )                                          # Set widget layout
+
+    self.catWidget = QWidget()                                                  # Initialize widget
+    layout         = QHBoxLayout()                                              # Initialize layout
+    self.catWidget.setLayout( layout )                                          # Set widget layout
+
+    self.currentDay  = 1                                                        # Set current day to day one (1); this will trigger the _updateCatWidget method
+
+    layout = QVBoxLayout()                                                      # Layout for top widget
+    layout.setAlignment( Qt.AlignHCenter )                                      # Set alignment to center in horizontal
+    layout.addWidget( self.dayWidget )                                          # Add widgets to layout
+    layout.addWidget( self.dateLabel )
     layout.addWidget( self.catWidget )
     layout.addWidget( canvas )
     layout.addWidget( navBar )
 
-    self.setLayout( layout )
-    self.show()
+    self.setLayout( layout )                                                    # Apply layout to self
 
-    self._timer = QTimer()
-    self._timer.timeout.connect( self.updateOutlook )
-    self._timer.start( 1000 * 60 * 5 )
+    self.show()                                                                 # Show
 
+    self._timer = QTimer()                                                      # Initialize timer
+    self._timer.timeout.connect( self.updateOutlook )                           # Run updateOutlook method on timer time out
+    self._timer.start( 1000 * 60 * 5 )                                          # Start timer with 5 minute run time
+
+  # Property for valid start time of outlook; used to return in 'fancy' format
   @property
   def start(self):
     return self._start.strftime( '%H%MZ %a %m/%d' )
@@ -120,6 +162,7 @@ class SPCWidget( SPC_Shapefiles, QWidget ):
   def start(self, val):
     self._start = val
 
+  # Property for valid end time of outlook; used to return in 'fancy' format
   @property
   def end(self):
     return self._end.strftime( '%H%MZ %a %m/%d' )
@@ -127,148 +170,153 @@ class SPCWidget( SPC_Shapefiles, QWidget ):
   def end(self, val):
     self._end = val
 
+  # Property for issued time of outlook
   @property
   def issued(self):
-    return self._issued.strftime( '%H%MZ %m/%d/%Y' )
+    return self._issued.strftime( '%H%MZ %m/%d/%Y' )                            # Return issued time as fancy format
   @issued.setter
   def issued(self, val):
-    if not isinstance(val, datetime):
-      return
-    self._issued = val
-    if (val.minute % 30) > 0:
-      val += timedelta(minutes=30)
-      val = val.replace(minute = 30 if val.minute >= 30 else 0)
+    if not isinstance(val, datetime):                                           # If input value is NOT datetime
+      return                                                                    # Return
+    self._issued = val                                                          # Update hidden issued
+    if (val.minute % 30) > 0:                                                   # If minutes NOT multiple of 30
+      val += timedelta(minutes=30)                                              # Increment time by 30 minutes
+      val = val.replace(minute = 30 if val.minute >= 30 else 0)                 # Set mintues to 0 or 30 based on new minuets
 
-    label = val.strftime('%b %d, %Y %H%M UTC')
-    label = f'{label} Day {self.currentDay} Convective Outlook'
-    self.dateLabel.setText( label )
+    label = val.strftime('%b %d, %Y %H%M UTC')                                  # Start building new label text with fancy date
+    label = f'{label} Day {self.currentDay} Convective Outlook'                 # Add more text to label text
+    self.dateLabel.setText( label )                                             # Update the dateLabel text
 
   @property
-  def currentFunc(self):
-    return self._currentFunc
-  @currentFunc.setter
-  def currentFunc(self, val):
-    self._currentFunc = getattr( self, f'draw{val}' )
-    
+  def outlookType(self):
+    return self._outlookType                                                    # Return hidden outlook type
+  @outlookType.setter
+  def outlookType(self, val):
+    self._outlookType = val                                                     # Update hidden outlook type
+    for key, val in self.catButtons.items():
+      val.setChecked( key == self._outlookType )
+    self._draw()                                                                # Redraw map
 
-  def updateOutlook(self):
-    self.getLatest()    
-    self.currentFunc()
+  @property
+  def currentDay(self):
+    return self._currentDay
+  @currentDay.setter
+  def currentDay(self, val):
+    if not isinstance(val, int): return
+    self._currentDay = val                                                      # Update current day
+    layout = self.dayWidget.layout()                                            # Get layout from dayWidget
+    for i in range( len(layout) ):                                              # Iterate over all elements in layout
+      layout.itemAt(i).widget().deleteLater()                                   # Delete each object
+
+    if self.currentDay > 1:                                                     # If current day greater than one (1)
+      button = QPushButton( f'Day {self.currentDay-1} Outlook' )                # Add button to go back one (1) day
+      button.clicked.connect( self._dayBackward )                               # Connect the _dayBackward method
+      layout.addWidget( button, 0, 0 )                                          # Add widget to first row, first column
+    if self.currentDay < 3:                                                     # If current day less than 3
+      button = QPushButton( f'Day {self.currentDay+1} Outlook' )                # Add button to go forward one (1) day
+      button.clicked.connect( self._dayForward )                                # Connec the _dayForward method
+      layout.addWidget( button, 0, 2 )                                          # Add widget to first row, third column
+
+    self._updateCatWidget()                                                     # Call the _updateCatWidget method
+
+  def _dayForward(self):
+    """Increment outlook day one (1) day"""
+
+    self.currentDay += 1
+
+  def _dayBackward(self):
+    """Decncrement outlook day one (1) day"""
+
+    self.currentDay -= 1
+
+  def _on_outlookType_Select(self, cat):
+    """Method connected to outlook type buttons"""
+
+    self.outlookType = cat                                                      # Change the outlook type
 
   def _initCanvas(self):
-    canvas        = FigureCanvas( Figure( figsize = (10,8), tight_layout=True ) )
-    self.ax       = canvas.figure.add_subplot( projection = ccrs.LambertConformal() )
+    canvas      = FigureCanvas( Figure( figsize = (10,8), tight_layout=True ) ) # Initialize figure canvas
+    self.ax     = canvas.figure.add_subplot( projection = ccrs.LambertConformal() )# Initialize map axes
 
     shpfilename = shpreader.natural_earth(resolution=RESOLUTION,
                                           category='cultural',
-                                          name='admin_0_countries')
-    reader = shpreader.Reader(shpfilename)
-    extent = Polygon.from_bounds( EXTENT[0], EXTENT[2], EXTENT[1], EXTENT[3] ) 
-    for country in reader.records():
-      if country.geometry.intersects( extent ):
-        if country.attributes['NAME'] != 'United States of America':
-          geo = country.geometry
-          if not isinstance( geo, (tuple, list) ): geo = [geo]
+                                          name='admin_0_countries')             # Get path to cartopy shape file file cultural boundaries
+    reader = shpreader.Reader(shpfilename)                                      # Open the shape file
+    extent = Polygon.from_bounds( EXTENT[0], EXTENT[2], EXTENT[1], EXTENT[3] )  # Generate polygon using the extent of the map
+    for country in reader.records():                                            # Iterate over each country in the shape file records
+      if country.geometry.intersects( extent ):                                 # If the geometry of the country intersects the map domain
+        if country.attributes['NAME'] != 'United States of America':            # If the name of the country is NOT the USA
+          geo = country.geometry                                                # Get country geometry
+          if not isinstance( geo, (tuple, list) ): geo = [geo]                  # If the geometry is NOT a list or tuple, convert to list
           self.ax.add_geometries(geo, ccrs.PlateCarree(),
-                            facecolor = NOT_USA, zorder=1)
-    reader.close()
+                            facecolor = NOT_USA, zorder=1)                      # Color in the country
+    reader.close()                                                              # Close the shape file
 
-    self.ax.add_feature( cfeature.OCEAN.with_scale(RESOLUTION), color = WATER)
-    self.ax.add_feature( cfeature.LAKES.with_scale(RESOLUTION), color = WATER)
-    self.ax.add_feature( cfeature.STATES.with_scale(RESOLUTION), linewidth = 0.5)
-    self.ax.coastlines( resolution = RESOLUTION, linewidth = 0.5 ) 
-    self.ax.set_extent( EXTENT )   
-    self.timeInfoText = self.ax.text(EXTENT[0]+0.5, EXTENT[2]+0.5, ' ', 
-      transform       = ccrs.PlateCarree(),
-      backgroundcolor = 'white' )
+    self.ax.add_feature( cfeature.OCEAN.with_scale(RESOLUTION), color = WATER)  # Color oceans
+    self.ax.add_feature( cfeature.LAKES.with_scale(RESOLUTION), color = WATER)  # Color lakes
+    self.ax.add_feature( cfeature.STATES.with_scale(RESOLUTION), linewidth = 0.5)# Show state borders
+    self.ax.coastlines( resolution = RESOLUTION, linewidth = 0.5 )              # Show coastlines
+    self.ax.set_extent( EXTENT )                                                # SEt the map extent
+    self.timeInfoText = self.ax.text(0.025, 0.025, ' ', 
+      transform       = self.ax.transAxes,
+      zorder          = 10, 
+      backgroundcolor = 'white' )                                               # Initialize a text object that will display the vaild/issed date information
 
-    return canvas
-
-  def _dayForward(self):
-    self.currentDay += 1
-    self._dayChange()
-    self._initCatWidget()
-
-  def _dayBackward(self):
-    self.currentDay -= 1
-    self._dayChange()
-    self._initCatWidget()
+    return canvas                                                               # Return the figure canvas
     
-  def _dayChange(self):
-    layout = self.dayWidget.layout()
-    for i in range( len(layout) ):
-      widget = layout.itemAt(i).widget()
-      if isinstance(widget, QPushButton):
-        widget.deleteLater()      
+  def _updateCatWidget(self):
+    """
+    Update widget for changing outlook type
 
-    if self.currentDay > 1:
-      button = QPushButton( f'Day {self.currentDay-1} Outlook' )
-      button.clicked.connect( self._dayBackward )      
-      layout.addWidget( button, 0, 0 )
-    if self.currentDay < 3:
-      button = QPushButton( f'Day {self.currentDay+1} Outlook' )
-      button.clicked.connect( self._dayForward )      
-      layout.addWidget( button, 0, 2 )
+    On a given outlook day, there are a few different outlook types; i.e.,
+    Categorical, Tornado, etc. The widget created by this method holds
+    the various buttons to change the outlook type
 
-  def _initDayWidget(self):
+    """
 
-    labelFont = self.font()
-    labelFont.setPointSize(28)
-    labelFont.setBold(True)
+    self.log.debug( 'Updating the outlook type widget' )
+    layout = self.catWidget.layout()                                            # Get layout from widget
+    for key in list(self.catButtons.keys()):                                    # Iterate over all keys in the catButtons attribute
+      self.catButtons.pop( key ).deleteLater()                                  # Pop key from dictionary and remove from the gui
 
-    self.dateLabel = QLabel()
-    self.dateLabel.setFont( labelFont )
+    for i, key in enumerate( self[ self.currentDay ] ):                         # Iterate over all keys in current day
+      self.log.debug( f'Adding button: {key}' )
+      button = QPushButton( key )                                               # Create button for current day
+      button.setCheckable( True )                                               # Set checkable
+      button.clicked.connect(
+        lambda state, arg = key: self._on_outlookType_Select( arg )
+      )                                                                         # Connect method to run on button click
+      layout.addWidget( button )                                                # Add button to widget layout
+      self.catButtons[key] = button                                             # Add button to the catButtons dictioanry
+      if i == 0:                                                                # If first button
+        self.outlookType = key                                                  # Set the outlook type to type of key; this will trigger draw of map
 
-    layout  = QGridLayout()
-    layout.setColumnStretch(1, 10)
-    layout.addWidget( self.dateLabel, 1, 0, 1, 3, alignment=Qt.AlignCenter )
+  def _draw( self, **kwargs ):
+    """
+    Update the map
 
-    self.dayWidget = QWidget()
-    self.dayWidget.setLayout( layout )
+    The outlookType and currentDay attributes are used to determine
+    how the map is to be draw.
+    """
 
-    self._dayChange()
+    day           = kwargs.pop('day', self.currentDay)
+    shapeFileInfo = getattr( self, self.outlookType )
+    if day not in shapeFileInfo:
+      return
+    shapeFileInfo = shapeFileInfo[day]
 
-  def _changeCat(self, cat):
-    for key, val in self.catButtons.items():
-      if key != cat:
-        val.setChecked( False )
-    self.currentFunc = cat
-    self.currentFunc()
+    self.log.info( f'Drawing {self.outlookType} for day : {day}' )
 
-  def _initCatWidget(self):
-    if self.catWidget is None:
-      layout  = QHBoxLayout()
-      self.catWidget = QWidget()
-      self.catWidget.setLayout( layout )
-    else:
-      layout = self.catWidget.layout()
-      for key in list(self.catButtons.keys()):
-        self.catButtons.pop( key ).deleteLater()
-      #for i in range( len(layout) ):
-      #  layout.itemAt(i).widget().deleteLater()      
-
-    for i, key in enumerate( self[ self.currentDay ] ):
-      button = QPushButton( key )
-      button.setCheckable( True )
-      button.clicked.connect( lambda state, arg = key: self._changeCat( arg ) )
-      layout.addWidget( button )
-      if i == 0: 
-        self.currentFunc = key
-        button.setChecked(True)
-        
-      self.catButtons[key] = button
-
-    self.drawCategorical()
-
-  def _draw( self, shp=None, dbf=None, **kwargs ):
-    minProb = kwargs.pop('minProb', None)
-    labelID = edgeID = faceID = None
+    opts = self.PLOT_OPTS.get( self.outlookType, {} )
+    for key, val in opts.items():
+      if key not in kwargs:
+        kwargs[key] = val
 
     while len(self.artists) > 0:
       self.artists.pop().remove()
 
     self.log.debug('Reading data from shapefile')
-    with ShapeReader( shp=shp, dbf=dbf ) as shp:
+    with ShapeReader( **shapeFileInfo ) as shp:
       fields = [field[0] for field in shp.fields]
 
       if 'LABEL' not in fields:
@@ -287,62 +335,42 @@ class SPCWidget( SPC_Shapefiles, QWidget ):
           self.start, self.end, self.issued, info = parseRecord(fields, record.record)
           poly  = PolygonPatch( record.shape.__geo_interface__, **info,
                     alpha     = 0.7, 
-                    zorder    = 10,  
+                    zorder    = 5,  
                     linewidth = 1.5,
                     transform = ccrs.PlateCarree())
           self.artists.append( self.ax.add_patch( poly ) )
-        self.artists.append(
-            self.ax.legend( loc = 'lower right', framealpha=1, **kwargs )
+        legend = self.ax.legend( **kwargs,
+              loc        = 'lower right',
+              framealpha = 1, 
+              title      = self.getLegendTitle()
         )
+        legend.set_zorder( 10 )
+        self.artists.append( legend )
+
       self.timeInfoText.set_text( self.getTimeInfo() )
   
-    self.log.debug('Updating plot')
     self.ax.figure.canvas.draw_idle()
 
   def getTimeInfo(self):
+    """Construct outlook time information text"""
+
     txt = [
-      f'SPC DAY {self.currentDay} {self.outlookType} OUTLOOK',
+      f'SPC DAY {self.currentDay} {self.outlookType.upper()} OUTLOOK',
       f'ISSUED: {self.issued}',
       f'VALID: {self.start} - {self.end}']
     return '\n'.join( txt )
 
-  def drawCategorical( self, *args, **kwargs ):
-    day = kwargs.get('day', self.currentDay)
-    self.outlookType = 'CATEGORICAL'
-    self.log.debug( f'Drawing categorical for day : {day}' )
-    if day in self.categorical:
-      self._draw( **self.categorical[day], ncol = 3, title='Categorical Outlook Legend')
+  def getLegendTitle(self):
+    """Construct title for legend based on outlook type"""
 
-  def drawProbabilistic( self, *args, **kwargs ):
-    day = kwargs.get('day', self.currentDay)
-    self.outlookType = 'PROBABILISTIC'
-    self.log.debug( f'Drawing probabilistic for day : {day}' )
-    if day in self.probabilistic:
-      self._draw( **self.probabilistic[day], 
-        minProb = self.PROB_MINPROB, ncol = 6, title='Total Severe Probability Legend (in %)')
+    if self.outlookType.startswith( 'Cat' ):
+      return 'Categorical Outlook Legend'
+    elif self.outlookType.startswith( 'Prob' ):
+      return 'Total Severe Probability Legend (in %)'
+    return f'{self.outlookType} Probability Legend (in %)'
 
-  def drawTornado( self, *args, **kwargs):
-    day = kwargs.get('day', self.currentDay)
-    self.outlookType = 'TORNADO'
-    self.log.debug( f'Drawing tornado for day : {day}' )
-    if day in self.tornado:
-      self._draw( **self.tornado[day], 
-        minProb = self.TORN_MINPROB, ncol = 8, title='Tornado Probability Legend (in %)')
+  def updateOutlook(self):
+    """Download lastest data and refresh maps"""
 
-  def drawWind( self, *args, **kwargs):
-    day = kwargs.get('day', self.currentDay)
-    self.outlookType = 'WIND'
-    self.log.debug( f'Drawing wind for day : {day}' )
-    if day in self.wind:
-      self._draw( **self.wind[day],
-        minProb = self.WIND_MINPROB, ncol = 6, title='Wind Probability Legend (in %)' )
-
-  def drawHail( self, *args, **kwargs):
-    day = kwargs.get('day', self.currentDay)
-    self.outlookType = 'HAIL'
-    self.log.debug( f'Drawing hail for day : {day}' )
-    if day in self.hail:
-      self._draw( **self.hail[day],
-        minProb = self.HAIL_MINPROB, ncol = 6, title='Hail Probability Legend (in %)' )
-
-
+    self.getLatest()
+    self._draw()
