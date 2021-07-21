@@ -1,6 +1,9 @@
 from datetime import datetime
 
 from urllib.request import urlopen
+from urllib.parse import urlencode
+
+from xml.etree import ElementTree as ET
 
 import numpy
 from metpy.units import units
@@ -8,7 +11,8 @@ from metpy.units import units
 from bs4 import BeautifulSoup as BS
 
 
-URL = 'https://forecast.weather.gov/MapClick.php?lat=38.78&lon=-97.6442&unit=0&lg=english&FcstType=digital'
+FORECAST_URL = 'https://forecast.weather.gov/MapClick.php?lat=38.78&lon=-97.6442&unit=0&lg=english&FcstType=digital'
+METAR_URL    = 'https://www.aviationweather.gov/adds/dataserver_current'
 
 WINDDIR = { 
     'NW'  : 315.0,
@@ -32,7 +36,11 @@ WINDDIR = {
     'WNW' : 292.5,
 }
 
-def downloadPage( url = URL ):
+def urlJoin( *args ):
+  args = [ arg.strip( '/' ) for arg in args ]
+  return '/'.join(args)
+
+def downloadPage( url = FORECAST_URL ):
   try:
     res = urlopen( url )
   except Exception as err:
@@ -166,7 +174,7 @@ def getRefDate( col, fmt = '%H%p %a, %b %d %Y' ):
   txt = date[0].text
   return datetime.strptime( txt, fmt )
 
-def getNWSData( url = URL, parser = 'html.parser' ):
+def getNWSForecastData( url = FORECAST_URL, parser = 'html.parser' ):
   html = downloadPage( url )
   if html is None: return html
 
@@ -188,7 +196,21 @@ def getNWSData( url = URL, parser = 'html.parser' ):
         elif txt == 'date':                                          # We found a table with good data
           return parseData( table, refDate, loc, update ) 
 
+def getCurrentMETAR( station ):
+  params = {
+    'dataSource'     : 'metars',
+    'requestType'    : 'retrieve',
+    'format'         : 'xml',
+    'stationString'  : station.upper(), 
+    'hoursBeforeNow' : 1.0
+  }
 
+  params = urlencode( params )
+  url    = f'{METAR_URL}/httpparam?{params}'
+
+  data   = downloadPage( url )
+  return data 
+ 
 if __name__ == "__main__":
   print( getNWSData() )
 

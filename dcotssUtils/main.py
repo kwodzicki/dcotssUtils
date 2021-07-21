@@ -1,7 +1,7 @@
 from qtpy.QtWidgets import QMainWindow, QTabWidget, QWidget, QVBoxLayout
 
 from .version import __version__
-from .widgets import Clock, HeightConverter, NWS_Forecast, StationWidget
+from .widgets import Clock, HeightConverter, NWS_Forecast, StationWidget, SPCWidget
   
 class MainWindow( QMainWindow ):
   def __init__(self, *args, **kwargs):
@@ -31,9 +31,11 @@ class Meteorology( QMainWindow ):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self.tabWidget   = QTabWidget()
-    self.stationPlot = StationWidget()
+    #self.stationPlot = StationWidget()
+    self.spc         = SPCWidget()
     self.forecast    = NWS_Forecast()
-    self.tabWidget.addTab( self.stationPlot, 'Station Plot' )
+    #self.tabWidget.addTab( self.stationPlot, 'Station Plot' )
+    self.tabWidget.addTab( self.spc,         'SPC Outlook' )
     self.tabWidget.addTab( self.forecast,    'Forecast' )
     self.setCentralWidget( self.tabWidget )
     self.show()

@@ -13,22 +13,22 @@ import numpy as np
 from metpy.calc import dewpoint_from_relative_humidity, wind_components
 from metpy.units import units
 
-from ..htmlUtils import getNWSData
+from ..htmlUtils import getNWSForecastData
 
-DEFAULT_KWARGS = {'marker' : 'o', 'linestyle' : '-'}
+DEFAULT_KWARGS = {'marker' : 'o', 'linestyle' : '-', 'linewidth' : 1, 'markersize' : 2}
+DEGSYM         = u'\xb0'
 
 def calc_mslp(t, p, h):
     return p * (1 - (0.0065 * h) / (t + 0.0065 * h + 273.15)) ** (-5.257)
 
 def roundUp( val, n=None ):
   tmp = round(val, n)
-  if tmp < val:
-    tmp += 10**(-n)
+  if tmp < val: tmp += 10**(-n)
   return tmp
 
 def roundDown( val, n=None ):
   tmp = round(val, n)
-  if tmp < val: tmp -= 10**(-n)
+  if tmp > val: tmp -= 10**(-n)
   return tmp
  
 # Make meteogram plot
@@ -95,17 +95,28 @@ class Meteogram( FigureCanvas ):
       mplDates.DateFormatter('%m/%d/%H')
   )
 
-  def _init_winds(self, ws, wd, wsmax):
-    ax         = self.figure.add_subplot(4, 1, 2)
-    self.winds = {'axes' : ax}
-    self.addGrid( ax )
+  def addAnnotations(self, subplot, fmt, *variables):
+    while len(subplot['text']) > 0:
+      subplot['text'].pop().remove()
+    for var in variables: 
+      for i in range(2, len(var), 3):
+        subplot['text'].append(
+          subplot['axes'].annotate(
+            fmt.format( var[i] ), (self.dates[i], var[i]),
+            fontsize = 'small',
+            horizontalalignment = 'center'
+          )
+        )
 
-    u, v = wind_components( ws, wd ) 
+  def _init_winds(self, ws, wsmax, u, v):
+    ax         = self.figure.add_subplot(4, 1, 2)
+    self.winds = {'axes' : ax, 'text' : []}
+    self.addGrid( ax )
 
     ln1  = ax.plot( self.dates, ws,    color='purple',   label='Wind Speed',  **DEFAULT_KWARGS)[0]
     ln2  = ax.plot( self.dates, wsmax, color='darkblue', label='Gust',        **DEFAULT_KWARGS)[0]
     ln3  = ax.barbs(self.dates, ws, u, v )
-    ax.set_ylabel( f'Wind Speed{os.linesep}({ws.units})', multialignment='center')
+    #ax.set_ylabel( f'Wind Speed{os.linesep}({ws.units})', multialignment='center')
     self.addLegend( ax )
     self.addDates(  ax )
 
@@ -123,17 +134,20 @@ class Meteogram( FigureCanvas ):
 
       ws    = ws.to('knots')
       wsmax = wsmax.to('knots')
+      u, v  = wind_components( ws, wd ) 
 
-      pMax = np.nanmax( wsmax ).m
+      ws    = ws.magnitude
+      wsmax = wsmax.magnitude
+
+      pMax = np.nanmax( wsmax )
       if not np.isfinite( pMax ):
-        pMax = ws.max().m
+        pMax = ws.max()
       prange = [-10, roundUp(pMax, -1)+10, 10]
 
       # PLOT WIND SPEED AND WIND DIRECTION
       if self.winds is None:
-        self._init_winds(ws, wd, wsmax)
+        self._init_winds(ws, wsmax, u, v)
       else:
-        u, v = wind_components( ws, wd ) 
         self.winds['wind' ].set_data( self.dates, ws )
         try:
           self.winds['barbs'].remove()#set_data( self.dates, ws, u, v)
@@ -142,18 +156,20 @@ class Meteogram( FigureCanvas ):
         else:
           self.winds['barbs'] = self.winds['axes'].barbs(self.dates, ws, u, v )
         self.winds['gust' ].set_data( self.dates, wsmax)
+      self.addAnnotations( self.winds, '{:0.0f}', ws )
+
       self.winds['axes'].set_ylim( *prange )
 
 
   def _init_thermo( self, t, td, heat ):
     ax          = self.figure.add_subplot(4, 1, 1 )#, sharex=self.ax1)
-    self.thermo = {'axes' : ax}
+    self.thermo = {'axes' : ax, 'text' : []}
     self.addGrid( ax )
 
-    ln1 = ax.plot(self.dates, t,    color='red',    label='Temperature', **DEFAULT_KWARGS)[0]
-    ln2 = ax.plot(self.dates, td,   color='green',  label='Dewpoint',    **DEFAULT_KWARGS)[0]
-    ln3 = ax.plot(self.dates, heat, color='orange', label='Heat Index',  **DEFAULT_KWARGS)[0]
-    ax.set_ylabel(f'Temperature{os.linesep}({t.units})', multialignment='center')
+    ln1 = ax.plot(self.dates, t,    color='red',    label=f'Temperature ({DEGSYM}F)', **DEFAULT_KWARGS)[0]
+    ln2 = ax.plot(self.dates, td,   color='green',  label=f'Dewpoint ({DEGSYM}F)',    **DEFAULT_KWARGS)[0]
+    ln3 = ax.plot(self.dates, heat, color='orange', label=f'Heat Index ({DEGSYM}F)',  **DEFAULT_KWARGS)[0]
+    #ax.set_ylabel(f'Temperature{os.linesep}({t.units})', multialignment='center')
     self.addDates( ax )
     self.addLegend( ax )
 
@@ -168,14 +184,15 @@ class Meteogram( FigureCanvas ):
         plot_range: Data range for making figure (list of (min,max,step))
     """
 
-    t    = t.to( units.degF )
-    td   = td.to( units.degF )
-    heat = heat.to( units.degF )
+    # Force units to degrees F
+    t    = t.to(    units.degF ).magnitude 
+    td   = td.to(   units.degF ).magnitude
+    heat = heat.to( units.degF ).magnitude
 
     pMin, pMax = np.inf, -np.inf
     for i in [t, td, heat]:
-      iMin = np.nanmin( i ).m
-      iMax = np.nanmax( i ).m
+      iMin = np.nanmin( i )
+      iMax = np.nanmax( i )
       if iMin < pMin: pMin = iMin 
       if iMax > pMax: pMax = iMax
     prange = [roundDown(pMin, -1), roundUp(pMax, -1)+10, 10]
@@ -187,19 +204,21 @@ class Meteogram( FigureCanvas ):
       self.thermo['t'   ].set_data(self.dates, t)
       self.thermo['td'  ].set_data(self.dates, td)
       self.thermo['heat'].set_data(self.dates, heat)
+    self.addAnnotations( self.thermo, '{:0.0f}'+DEGSYM, t, td, heat )
 
     self.thermo['axes'].set_ylim( *prange )
 
+
   def _init_probs( self, rh, precip, sky):
     ax          = self.figure.add_subplot(4, 1, 3 )#, sharex=self.ax1)
-    self.probs  = {'axes' : ax}
+    self.probs  = {'axes' : ax, 'text' : []}
     self.addGrid( ax )
 
     ln1 = ax.plot(self.dates, rh,     color='green', label='Relative Humidity',       **DEFAULT_KWARGS)[0]
     ln2 = ax.plot(self.dates, precip, color='brown', label='Precipitation Potential', **DEFAULT_KWARGS)[0]
     ln3 = ax.plot(self.dates, sky,    color='blue',  label='Sky Cover',               **DEFAULT_KWARGS)[0]
 
-    ax.set_ylabel( f'Probability{os.linesep}(%)', multialignment='center')
+    #ax.set_ylabel( f'Probability{os.linesep}(%)', multialignment='center')
     self.addDates(  ax )
     self.addLegend( ax )
 
@@ -208,63 +227,21 @@ class Meteogram( FigureCanvas ):
 
   def plot_probs(self, rh, precip, sky):
 
+    rh     = rh.to(     units.percent ).magnitude
+    precip = precip.to( units.percent ).magnitude
+    sky    = sky.to(    units.percent ).magnitude
+
     if self.probs is None:
       self._init_probs( rh, precip, sky )
     else:
       self.probs['rh'    ].set_data(self.dates, rh)
       self.probs['precip'].set_data(self.dates, precip)
       self.probs['sky'   ].set_data(self.dates, sky)
+
+    self.addAnnotations( self.probs, '{:0.0f}%', rh, precip, sky )
+
     self.probs['axes'].set_ylim( -10, 120, 20 ) 
 
-  def plot_rh(self, rh, plot_range=None):
-      """
-      Required input:
-          RH: Relative humidity (%)
-      Optional Input:
-          plot_range: Data range for making figure (list of (min,max,step))
-      """
-      # PLOT RELATIVE HUMIDITY
-      if not plot_range:
-          plot_range = [0, 100, 4]
-      self.ax3 = self.figure.add_subplot(4, 1, 3, sharex=self.ax1)
-      self.ax3.plot(self.dates, rh, 'g-', label='Relative Humidity')
-      self.ax3.legend(loc='upper center', bbox_to_anchor=(0.5, 1.22), prop={'size': 12})
-      self.ax3.grid(b=True, which='major', axis='y', color='k', linestyle='--',
-                    linewidth=0.5)
-      self.ax3.set_ylim(plot_range[0], plot_range[1], plot_range[2])
-
-      self.ax3.fill_between(self.dates, rh, self.ax3.get_ylim()[0], color='g')
-      self.ax3.set_ylabel('Relative Humidity\n(%)', multialignment='center')
-      self.ax3.xaxis.set_major_formatter(mplDates.DateFormatter('%d/%H UTC'))
-      axtwin = self.ax3.twinx()
-      axtwin.set_ylim(plot_range[0], plot_range[1], plot_range[2])
-
-  def plot_pressure(self, p, plot_range=None):
-      """
-      Required input:
-          P: Mean Sea Level Pressure (hPa)
-      Optional Input:
-          plot_range: Data range for making figure (list of (min,max,step))
-      """
-      # PLOT PRESSURE
-      if not plot_range:
-          plot_range = [970, 1030, 2]
-      self.ax4 = self.figure.add_subplot(4, 1, 4, sharex=self.ax1)
-      self.ax4.plot(self.dates, p, 'm', label='Mean Sea Level Pressure')
-      self.ax4.set_ylabel('Mean Sea\nLevel Pressure\n(mb)', multialignment='center')
-      self.ax4.set_ylim(plot_range[0], plot_range[1], plot_range[2])
-
-      axtwin = self.ax4.twinx()
-      axtwin.set_ylim(plot_range[0], plot_range[1], plot_range[2])
-      axtwin.fill_between(self.dates, p, axtwin.get_ylim()[0], color='m')
-      axtwin.xaxis.set_major_formatter(mplDates.DateFormatter('%d/%H UTC'))
-
-      self.ax4.legend(loc='upper center', bbox_to_anchor=(0.5, 1.2), prop={'size': 12})
-      self.ax4.grid(b=True, which='major', axis='y', color='k', linestyle='--',
-                    linewidth=0.5)
-      # OTHER OPTIONAL AXES TO PLOT
-      # plot_irradiance
-      # plot_precipitation
 
   def replot(self, data):
     self.dates = data['date']
@@ -306,7 +283,7 @@ class NWS_Forecast( QWidget ):
 
   def _update(self):
     try:
-      data = getNWSData()
+      data = getNWSForecastData()
     except Exception as err:
       print( f'Failed to get data: {err}' )
       return
