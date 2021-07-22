@@ -311,6 +311,7 @@ class SPCWidget( SPC_Shapefiles, QWidget ):
     for key, val in opts.items():
       if key not in kwargs:
         kwargs[key] = val
+    minProb = kwargs.pop('minProb', '')
 
     while len(self.artists) > 0:
       self.artists.pop().remove()
