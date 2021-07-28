@@ -2,6 +2,7 @@ import logging
 
 import re
 from datetime import datetime, timedelta
+from itertools import chain
 
 from qtpy.QtWidgets import QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout
 from qtpy.QtGui import QFont
@@ -11,6 +12,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 
 from matplotlib.figure import Figure
+from matplotlib.patches import Patch
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -29,6 +31,11 @@ NOT_USA    = [0.75] * 3
 
 FLOAT      = re.compile( '\d+\.?\d*' )
 DATEFMT    = '%Y%m%d%H%M'
+
+def flip(items, ncol):
+  """Flip data for legend so fills across row instead of down column"""
+
+  return chain(*[items[i::ncol] for i in range(ncol)])
 
 def convert2Percent(val):
   """
@@ -77,6 +84,11 @@ def parseRecord(fields, record):
       key = 'facecolor'                                                         # Set key val
     if key:                                                                     # If the key is set
       out[key] = val                                                            # Add value to the out dict
+
+  label = out.get('label', None)
+  if label == 'SIGN':
+    out.update( {'fill' : False, 'hatch' : '..', 'linestyle' : '--'} )
+
   return start, end, issued, out                                                # Return values
 
 class ShapeReader( Reader ):
@@ -183,8 +195,9 @@ class SPCWidget( SPC_Shapefiles, QWidget ):
       val += timedelta(minutes=30)                                              # Increment time by 30 minutes
       val = val.replace(minute = 30 if val.minute >= 30 else 0)                 # Set mintues to 0 or 30 based on new minuets
 
-    label = val.strftime('%b %d, %Y %H%M UTC')                                  # Start building new label text with fancy date
-    label = f'{label} Day {self.currentDay} Convective Outlook'                 # Add more text to label text
+    outlook = 'Convective' if self.currentDay < 3 else 'Severe Thunderstorm' 
+    label   = val.strftime('%b %d, %Y %H%M UTC')                                # Start building new label text with fancy date
+    label   = f'{label} Day {self.currentDay} {outlook} Outlook'                # Add more text to label text
     self.dateLabel.setText( label )                                             # Update the dateLabel text
 
   @property
@@ -332,6 +345,7 @@ class SPCWidget( SPC_Shapefiles, QWidget ):
         self.artists.append( txt )
       else: 
         self.log.debug('Drawing shapes')
+        handles = []                                                            # Handles for legend
         for record in shp.shapeRecords():
           self.start, self.end, self.issued, info = parseRecord(fields, record.record)
           poly  = PolygonPatch( record.shape.__geo_interface__, **info,
@@ -340,17 +354,23 @@ class SPCWidget( SPC_Shapefiles, QWidget ):
                     linewidth = 1.5,
                     transform = ccrs.PlateCarree())
           self.artists.append( self.ax.add_patch( poly ) )
-        legend = self.ax.legend( **kwargs,
+          handles.append( Patch( facecolor=info.get('facecolor', None),
+                                 edgecolor=info.get('edgecolor', None),
+                                 label    =info.get('label',     None) ) )      # Build object for legend; this is done to ensure that any hatched areas on map appear as filled box in legend
+
+        if self.outlookType.startswith('Cat'):                                  # If workin got Categorical
+          handles = flip(handles, kwargs['ncol'])                               # Flip the handles
+        legend = self.ax.legend( handles=handles, **kwargs,
               loc        = 'lower right',
               framealpha = 1, 
               title      = self.getLegendTitle()
-        )
-        legend.set_zorder( 10 )
-        self.artists.append( legend )
+        )                                                                       # Build legend
+        legend.set_zorder( 10 )                                                 # Set zorder of legend os is ALWAYS on top
+        self.artists.append( legend )                                           # Append legend artist to the list of artists
 
-      self.timeInfoText.set_text( self.getTimeInfo() )
+      self.timeInfoText.set_text( self.getTimeInfo() )                          # Get time info and use it to set the time info text label
   
-    self.ax.figure.canvas.draw_idle()
+    self.ax.figure.canvas.draw_idle()                                           # Trigger redraw of the map
 
   def getTimeInfo(self):
     """Construct outlook time information text"""
