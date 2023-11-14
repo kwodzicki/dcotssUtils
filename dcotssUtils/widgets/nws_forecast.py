@@ -79,7 +79,7 @@ class Meteogram( FigureCanvas ):
 
   def addGrid(self, axis, **kwargs):
     axis.grid(
-      b         = kwargs.get('b',         True), 
+      visible   = kwargs.get('b',         True), 
       which     = kwargs.get('which',     'both'),
       axis      = kwargs.get('axis',      'both'),
       color     = kwargs.get('color',     'gray'),
@@ -142,7 +142,7 @@ class Meteogram( FigureCanvas ):
       pMax = np.nanmax( wsmax )
       if not np.isfinite( pMax ):
         pMax = ws.max()
-      prange = [-10, roundUp(pMax, -1)+10, 10]
+      prange = [-10, roundUp(pMax, -1)+10]#, 10]
 
       # PLOT WIND SPEED AND WIND DIRECTION
       if self.winds is None:
@@ -175,7 +175,7 @@ class Meteogram( FigureCanvas ):
 
     self.thermo.update( {'t' : ln1, 'td' : ln2, 'heat' : ln3} )
 
-  def plot_thermo(self, t, td, heat):
+  def plot_thermo(self, data):#t, td, heat):
     """
     Required input:
         T: Temperature 
@@ -183,6 +183,11 @@ class Meteogram( FigureCanvas ):
     Optional Input:
         plot_range: Data range for making figure (list of (min,max,step))
     """
+   
+    fill = units.Quantity(np.full(self.dates.shape, np.nan), 'K')
+    t    = data.get('Temperature', fill)
+    td   = data.get('Dewpoint',    fill)
+    heat = data.get('Heat Index',  fill)
 
     # Force units to degrees F
     t    = t.to(    units.degF ).magnitude 
@@ -195,8 +200,8 @@ class Meteogram( FigureCanvas ):
       iMax = np.nanmax( i )
       if iMin < pMin: pMin = iMin 
       if iMax > pMax: pMax = iMax
-    prange = [roundDown(pMin, -1), roundUp(pMax, -1)+10, 10]
-
+    prange = [roundDown(pMin, -1), roundUp(pMax, -1)+10]#, 10]
+    
     # PLOT TEMPERATURE AND DEWPOINT
     if self.thermo is None:
       self._init_thermo( t, td, heat )
@@ -240,13 +245,13 @@ class Meteogram( FigureCanvas ):
 
     self.addAnnotations( self.probs, '{:0.0f}%', rh, precip, sky )
 
-    self.probs['axes'].set_ylim( -10, 120, 20 ) 
+    self.probs['axes'].set_ylim( -10, 120)#, 20 ) 
 
 
   def replot(self, data):
     self.dates = data['date']
     self.figure.suptitle( data['location'], fontsize=12 )
-    self.plot_thermo( data['Temperature'], data['Dewpoint'], data['Heat Index'] )
+    self.plot_thermo( data)#['Temperature'], data['Dewpoint'], data['Heat Index'] )
     self.plot_winds( data['Surface Wind'], data['Wind Dir'], data['Gust'] )
     self.plot_probs( data['Relative Humidity'], data['Precipitation Potential'], data['Sky Cover'] )
 
@@ -270,7 +275,7 @@ class NWS_Forecast( QWidget ):
 
     self._timer = QTimer()
     self._timer.timeout.connect( self._update )
-    self._timer.start( interval * 1000 * 60  )
+    self._timer.start( int(interval * 1000 * 60)  )
     #self._timer.start( 1000 )
     
     layout = QVBoxLayout()

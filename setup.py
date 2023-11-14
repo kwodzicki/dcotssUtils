@@ -14,7 +14,7 @@ setuptools.setup(
   author_email     = "wodzicki@tamu.com",
   version          = main_ns['__version__'],
   packages         = setuptools.find_packages(),
-  install_requires = [ "qtpy", "numpy", "matplotlib", "metpy", "shapely", "cartopy", "descartes" ],
+  install_requires = [ "pyqt5", "bs4", "numpy", "matplotlib", "metpy", "shapely", "cartopy", "descartes" ],
   scripts          = ['bin/dcotssUtils'],
   zip_safe         = False,
 );
